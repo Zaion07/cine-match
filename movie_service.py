@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any, Iterable
 
@@ -10,7 +10,22 @@ import requests
 
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
 TMDB_MOVIE_URL = "https://www.themoviedb.org/movie"
+IMDB_TITLE_URL = "https://www.imdb.com/title/{imdb_id}/"
 DEFAULT_LANGUAGE = "pt-BR"
+WESTERN_LANGUAGE_CODES = {
+    "en",
+    "pt",
+    "es",
+    "fr",
+    "it",
+    "de",
+    "nl",
+    "sv",
+    "no",
+    "da",
+    "fi",
+    "pl",
+}
 GENRE_KEYWORDS = {
     "acao": "Action",
     "ação": "Action",
@@ -50,8 +65,15 @@ class Movie:
     release_date: str | None
     overview: str
     rating: float | None
-    genres: list[str]
-    poster_path: str | None
+    genres: list[str] = field(default_factory=list)
+    poster_path: str | None = None
+    genre_ids: list[int] = field(default_factory=list)
+    original_language: str | None = None
+    original_title: str | None = None
+    popularity: float | None = None
+    vote_count: int | None = None
+    imdb_id: str | None = None
+    runtime: int | None = None
 
     @property
     def release_year(self) -> str:
@@ -98,6 +120,10 @@ class TMDbClient:
         genres: Iterable[str] | None = None,
         year: int | None = None,
         page: int = 1,
+        runtime_gte: int | None = None,
+        runtime_lte: int | None = None,
+        year_gte: int | None = None,
+        year_lte: int | None = None,
     ) -> list[Movie]:
         params: dict[str, Any] = {
             "sort_by": "popularity.desc",
@@ -109,6 +135,14 @@ class TMDbClient:
             params["with_genres"] = ",".join(str(genre_id) for genre_id in genre_ids)
         if year:
             params["primary_release_year"] = year
+        if runtime_gte is not None:
+            params["with_runtime.gte"] = runtime_gte
+        if runtime_lte is not None:
+            params["with_runtime.lte"] = runtime_lte
+        if year_gte is not None:
+            params["primary_release_date.gte"] = f"{year_gte}-01-01"
+        if year_lte is not None:
+            params["primary_release_date.lte"] = f"{year_lte}-12-31"
         payload = self._get("/discover/movie", params=params)
         return self._parse_movies(payload.get("results", []))
 
@@ -122,6 +156,43 @@ class TMDbClient:
     def top_rated_movies(self) -> list[Movie]:
         payload = self._get("/movie/top_rated", params={"page": 1})
         return self._parse_movies(payload.get("results", []))
+
+    def movie_details(self, movie_id: int) -> Movie:
+        payload = self._get(f"/movie/{movie_id}")
+        genres = [item["name"] for item in payload.get("genres", []) if item.get("name")]
+        return Movie(
+            id=payload["id"],
+            title=payload.get("title") or payload.get("original_title") or "Sem título",
+            release_date=payload.get("release_date") or None,
+            overview=payload.get("overview") or "Sem sinopse disponível.",
+            rating=payload.get("vote_average"),
+            genres=genres,
+            poster_path=payload.get("poster_path"),
+            genre_ids=[item.get("id") for item in payload.get("genres", []) if item.get("id") is not None],
+            original_language=payload.get("original_language"),
+            original_title=payload.get("original_title"),
+            popularity=payload.get("popularity"),
+            vote_count=payload.get("vote_count"),
+            imdb_id=payload.get("imdb_id"),
+            runtime=payload.get("runtime"),
+        )
+
+    def fetch_imdb_rating(self, imdb_id: str | None) -> float | None:
+        if not imdb_id:
+            return None
+        try:
+            response = requests.get(
+                IMDB_TITLE_URL.format(imdb_id=imdb_id),
+                headers={"User-Agent": "Mozilla/5.0", "Accept-Language": "en-US,en;q=0.9"},
+                timeout=15,
+            )
+            response.raise_for_status()
+        except requests.RequestException:
+            return None
+        match = re.search(r'"ratingValue"\s*:\s*"?(?P<rating>\d+(?:\.\d+)?)"?', response.text)
+        if not match:
+            return None
+        return float(match.group("rating"))
 
     def _genre_ids(self, names: Iterable[str]) -> list[int]:
         available = self.genres()
@@ -137,6 +208,9 @@ class TMDbClient:
         for item in items:
             if not item.get("title"):
                 continue
+            genres = [genre.get("name") for genre in item.get("genre_names", []) if genre.get("name")]
+            if not genres and item.get("genres"):
+                genres = [genre.get("name") for genre in item.get("genres", []) if genre.get("name")]
             movies.append(
                 Movie(
                     id=item["id"],
@@ -144,11 +218,16 @@ class TMDbClient:
                     release_date=item.get("release_date") or None,
                     overview=item.get("overview") or "Sem sinopse disponível.",
                     rating=item.get("vote_average"),
-                    genres=[],
+                    genres=genres,
                     poster_path=item.get("poster_path"),
+                    genre_ids=item.get("genre_ids") or [],
+                    original_language=item.get("original_language"),
+                    original_title=item.get("original_title"),
+                    popularity=item.get("popularity"),
+                    vote_count=item.get("vote_count"),
                 )
             )
-        return movies[:5]
+        return movies
 
 
 def extract_year(message: str) -> int | None:
