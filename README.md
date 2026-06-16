@@ -2,7 +2,7 @@
 
 Chatbot web em Python para indicar filmes usando a API da TMDb.
 
-O fluxo faz 4 perguntas simples antes de recomendar filmes.
+O fluxo faz 10 perguntas simples antes de recomendar filmes.
 
 ## Configuração
 
