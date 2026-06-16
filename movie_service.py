@@ -10,51 +10,163 @@ import requests
 
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
 TMDB_MOVIE_URL = "https://www.themoviedb.org/movie"
-IMDB_TITLE_URL = "https://www.imdb.com/title/{imdb_id}/"
+TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p"
 DEFAULT_LANGUAGE = "pt-BR"
-WESTERN_LANGUAGE_CODES = {
-    "en",
-    "pt",
-    "es",
-    "fr",
-    "it",
-    "de",
-    "nl",
-    "sv",
-    "no",
-    "da",
-    "fi",
-    "pl",
-}
-GENRE_KEYWORDS = {
-    "acao": "Action",
-    "ação": "Action",
+
+MIN_VOTE_COUNT = 300
+MIN_RATING = 6.0
+TOP_N_MOVIES = 3
+BAYESIAN_PRIOR_VOTES = 300
+BAYESIAN_MEAN_RATING = 6.5
+
+GENRE_KEYWORDS: dict[str, str] = {
+    "acao": "Action", "ação": "Action",
     "aventura": "Adventure",
-    "animacao": "Animation",
-    "animação": "Animation",
-    "comedia": "Comedy",
-    "comédia": "Comedy",
+    "animacao": "Animation", "animação": "Animation", "anime": "Animation",
+    "comedia": "Comedy", "comédia": "Comedy", "comédia": "Comedy",
     "crime": "Crime",
-    "documentario": "Documentary",
-    "documentário": "Documentary",
+    "documentario": "Documentary", "documentário": "Documentary",
     "drama": "Drama",
-    "familia": "Family",
-    "família": "Family",
+    "familia": "Family", "família": "Family",
     "fantasia": "Fantasy",
-    "ficcao": "Science Fiction",
-    "ficção": "Science Fiction",
-    "ficção científica": "Science Fiction",
-    "historico": "History",
-    "histórico": "History",
-    "terror": "Horror",
-    "mistério": "Mystery",
-    "misterio": "Mystery",
+    "ficcao": "Science Fiction", "ficção": "Science Fiction",
+    "ficção científica": "Science Fiction", "sci-fi": "Science Fiction",
+    "historico": "History", "histórico": "History",
+    "terror": "Horror", "horror": "Horror",
+    "mistério": "Mystery", "misterio": "Mystery",
     "romance": "Romance",
-    "ficção científica": "Science Fiction",
-    "suspense": "Thriller",
-    "thriller": "Thriller",
+    "suspense": "Thriller", "thriller": "Thriller",
     "guerra": "War",
     "western": "Western",
+    "musical": "Music", "música": "Music", "music": "Music",
+}
+
+MOOD_GENRE_MAP: dict[str, list[str]] = {
+    "leve": ["Comedy", "Family", "Animation"],
+    "levinho": ["Comedy", "Family"],
+    "engraçado": ["Comedy"], "engracado": ["Comedy"],
+    "divertido": ["Comedy", "Adventure"],
+    "emocionante": ["Action", "Adventure", "Drama"],
+    "intenso": ["Thriller", "Drama", "Crime"],
+    "pesado": ["Drama", "Crime"],
+    "triste": ["Drama"],
+    "chorar": ["Drama", "Romance"],
+    "romantico": ["Romance", "Drama"], "romântico": ["Romance"],
+    "assustador": ["Horror"],
+    "misterioso": ["Mystery", "Thriller"],
+    "reflexivo": ["Drama", "Documentary"],
+    "inspirador": ["Drama", "History"],
+    "animado": ["Animation", "Comedy"],
+    "épico": ["Action", "Adventure", "History"], "epico": ["Action", "Adventure"],
+    "sombrio": ["Horror", "Thriller", "Crime"],
+    "curioso": ["Documentary", "Mystery"],
+    "gargalhar": ["Comedy"],
+    "agitado": ["Action", "Adventure"],
+    "tenso": ["Thriller", "Horror"],
+    "emocionado": ["Drama", "Romance"],
+    "empolgado": ["Action", "Adventure"],
+}
+
+CONTEXT_MAP: dict[str, list[str]] = {
+    "casal": ["Romance", "Drama"],
+    "namoro": ["Romance", "Drama"], "namorado": ["Romance", "Drama"], "namorada": ["Romance", "Drama"],
+    "noivo": ["Romance", "Drama"], "noiva": ["Romance", "Drama"],
+    "família": ["Family", "Animation", "Comedy"], "familia": ["Family", "Animation", "Comedy"],
+    "criança": ["Family", "Animation"], "crianca": ["Family", "Animation"],
+    "filho": ["Family", "Animation"], "filhos": ["Family", "Animation"],
+    "kid": ["Family", "Animation"], "kids": ["Family", "Animation"],
+    "amigo": ["Comedy", "Action"], "amigos": ["Comedy", "Action"],
+    "galera": ["Comedy", "Action"],
+    "grupo": ["Comedy", "Action"],
+}
+
+LANGUAGE_MAP: dict[str, str] = {
+    "brasil": "pt", "brasileiro": "pt", "nacional": "pt",
+    "português": "pt", "portugues": "pt",
+    "americano": "en", "inglês": "en", "ingles": "en", "hollywood": "en",
+    "frances": "fr", "francês": "fr", "france": "fr",
+    "espanhol": "es", "español": "es",
+    "italiano": "it",
+    "alemão": "de", "alemao": "de",
+    "japones": "ja", "japonês": "ja", "japão": "ja",
+    "coreano": "ko", "korea": "ko",
+    "chinês": "zh", "chines": "zh",
+    "hindi": "hi", "india": "hi",
+}
+
+RUNTIME_PATTERNS: list[tuple[str, tuple[int | None, int | None]]] = [
+    (r"curto|curta|r[áa]pido|1h30|90\s*min|\bshort\b", (None, 100)),
+    (r"longo|longa|[eé]pico|epico|2h|2\s*hora|\blong\b", (120, None)),
+]
+
+THEME_MAP: dict[str, str] = {
+    "viagem no tempo": "Science Fiction", "time travel": "Science Fiction",
+    "superpoder": "Action", "super heroi": "Action", "superhero": "Action",
+    "heist": "Crime", "assalto": "Crime", "roubo": "Crime",
+    "vingança": "Thriller", "vinganca": "Thriller", "revenge": "Thriller",
+    "survival": "Thriller", "sobrevivência": "Thriller", "sobrevivencia": "Thriller",
+    "espionagem": "Thriller", "espio": "Thriller", "spy": "Thriller",
+    "espaço": "Science Fiction", "espaco": "Science Fiction", "space": "Science Fiction",
+    "zumbi": "Horror", "zombie": "Horror",
+    "apocalipse": "Science Fiction", "apocalypse": "Science Fiction",
+    "detetive": "Mystery", "detective": "Mystery", "investigação": "Mystery",
+    "serial killer": "Thriller",
+    "amizade": "Drama", "friendship": "Drama",
+    "redenção": "Drama", "redencao": "Drama", "redemption": "Drama",
+    "esporte": "Drama", "sport": "Drama",
+    "dança": "Music", "dance": "Music",
+    "guerra": "War", "batalha": "War",
+    "policia": "Crime", "polícia": "Crime",
+}
+
+# Mapeia termos em PT para keywords reais do TMDb (em inglês)
+THEME_TO_KEYWORD: dict[str, str] = {
+    "heist": "heist",
+    "assalto": "heist",
+    "roubo": "heist",
+    "vingança": "revenge",
+    "vinganca": "revenge",
+    "revenge": "revenge",
+    "espionagem": "spy",
+    "espio": "spy",
+    "spy": "spy",
+    "viagem no tempo": "time travel",
+    "time travel": "time travel",
+    "zumbi": "zombie",
+    "zombie": "zombie",
+    "serial killer": "serial killer",
+    "assassino serial": "serial killer",
+    "sobrevivência": "survival",
+    "sobrevivencia": "survival",
+    "survival": "survival",
+    "apocalipse": "post-apocalyptic",
+    "apocalypse": "post-apocalyptic",
+    "detetive": "detective",
+    "detective": "detective",
+    "investigação": "detective",
+    "super heroi": "superhero",
+    "superhero": "superhero",
+    "amizade": "friendship",
+    "friendship": "friendship",
+    "redenção": "redemption",
+    "redencao": "redemption",
+    "redemption": "redemption",
+}
+
+# IDs fixos do TMDb — nao dependem do idioma da API
+GENRE_IDS: dict[str, int] = {
+    "Action": 28, "Adventure": 12, "Animation": 16, "Comedy": 35,
+    "Crime": 80, "Documentary": 99, "Drama": 18, "Family": 10751,
+    "Fantasy": 14, "History": 36, "Horror": 27, "Music": 10402,
+    "Mystery": 9648, "Romance": 10749, "Science Fiction": 878,
+    "Thriller": 53, "War": 10752, "Western": 37,
+}
+GENRE_ID_TO_NAME: dict[int, str] = {v: k for k, v in GENRE_IDS.items()}
+
+NEGATIVE_REFERENCE = {
+    "não", "nao", "nenhum", "nada", "sem referência", "sem referencia",
+    "não tenho", "nao tenho", "nenhuma", "tanto faz", "qualquer", "sem",
+    "nope", "n", "não sei", "nao sei", "nunca vi", "nenhum filme",
 }
 
 
@@ -77,13 +189,23 @@ class Movie:
 
     @property
     def release_year(self) -> str:
-        if not self.release_date:
-            return "s/ data"
-        return self.release_date[:4]
+        return self.release_date[:4] if self.release_date else "s/d"
 
     @property
     def url(self) -> str:
         return f"{TMDB_MOVIE_URL}/{self.id}"
+
+    def poster_url(self, size: str = "w500") -> str | None:
+        return f"{TMDB_IMAGE_BASE}/{size}{self.poster_path}" if self.poster_path else None
+
+    def score(self) -> float:
+        rating = self.rating or 0.0
+        votes = self.vote_count or 0
+        if votes == 0:
+            return 0.0
+        m = BAYESIAN_PRIOR_VOTES
+        C = BAYESIAN_MEAN_RATING
+        return (votes / (votes + m)) * rating + (m / (votes + m)) * C
 
 
 class MovieAPIError(RuntimeError):
@@ -100,15 +222,15 @@ class TMDbClient:
         self.session = requests.Session()
 
     def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        query = {"api_key": self.api_key, "language": self.language}
+        query: dict[str, Any] = {"api_key": self.api_key, "language": self.language}
         if params:
             query.update(params)
-        response = self.session.get(f"{TMDB_BASE_URL}{path}", params=query, timeout=15)
+        resp = self.session.get(f"{TMDB_BASE_URL}{path}", params=query, timeout=15)
         try:
-            response.raise_for_status()
+            resp.raise_for_status()
         except requests.RequestException as exc:
-            raise MovieAPIError(f"Falha ao consultar a API de filmes: {exc}") from exc
-        return response.json()
+            raise MovieAPIError(f"Falha na API de filmes: {exc}") from exc
+        return resp.json()
 
     @lru_cache(maxsize=1)
     def genres(self) -> dict[str, int]:
@@ -119,32 +241,48 @@ class TMDbClient:
         self,
         genres: Iterable[str] | None = None,
         year: int | None = None,
-        page: int = 1,
-        runtime_gte: int | None = None,
-        runtime_lte: int | None = None,
         year_gte: int | None = None,
         year_lte: int | None = None,
+        language: str | None = None,
+        runtime_gte: int | None = None,
+        runtime_lte: int | None = None,
+        sort_by: str = "vote_count.desc",
+        keyword_id: int | None = None,
+        pages: int = 2,
     ) -> list[Movie]:
-        params: dict[str, Any] = {
-            "sort_by": "popularity.desc",
-            "page": page,
+        base_params: dict[str, Any] = {
+            "sort_by": sort_by,
             "include_adult": False,
+            "vote_count.gte": MIN_VOTE_COUNT,
+            "vote_average.gte": MIN_RATING,
         }
         genre_ids = self._genre_ids(genres or [])
         if genre_ids:
-            params["with_genres"] = ",".join(str(genre_id) for genre_id in genre_ids)
+            base_params["with_genres"] = ",".join(str(gid) for gid in genre_ids)
         if year:
-            params["primary_release_year"] = year
+            base_params["primary_release_year"] = year
+        if year_gte:
+            base_params["primary_release_date.gte"] = f"{year_gte}-01-01"
+        if year_lte:
+            base_params["primary_release_date.lte"] = f"{year_lte}-12-31"
+        if language:
+            base_params["with_original_language"] = language
         if runtime_gte is not None:
-            params["with_runtime.gte"] = runtime_gte
+            base_params["with_runtime.gte"] = runtime_gte
         if runtime_lte is not None:
-            params["with_runtime.lte"] = runtime_lte
-        if year_gte is not None:
-            params["primary_release_date.gte"] = f"{year_gte}-01-01"
-        if year_lte is not None:
-            params["primary_release_date.lte"] = f"{year_lte}-12-31"
-        payload = self._get("/discover/movie", params=params)
-        return self._parse_movies(payload.get("results", []))
+            base_params["with_runtime.lte"] = runtime_lte
+        if keyword_id is not None:
+            base_params["with_keywords"] = str(keyword_id)
+
+        movies: list[Movie] = []
+        seen: set[int] = set()
+        for page in range(1, pages + 1):
+            payload = self._get("/discover/movie", params={**base_params, "page": page})
+            for m in self._parse_movies(payload.get("results", [])):
+                if m.id not in seen:
+                    seen.add(m.id)
+                    movies.append(m)
+        return movies
 
     def search_movies(self, query: str, year: int | None = None) -> list[Movie]:
         params: dict[str, Any] = {"query": query, "include_adult": False}
@@ -157,143 +295,408 @@ class TMDbClient:
         payload = self._get("/movie/top_rated", params={"page": 1})
         return self._parse_movies(payload.get("results", []))
 
-    def movie_details(self, movie_id: int) -> Movie:
-        payload = self._get(f"/movie/{movie_id}")
-        genres = [item["name"] for item in payload.get("genres", []) if item.get("name")]
-        return Movie(
-            id=payload["id"],
-            title=payload.get("title") or payload.get("original_title") or "Sem título",
-            release_date=payload.get("release_date") or None,
-            overview=payload.get("overview") or "Sem sinopse disponível.",
-            rating=payload.get("vote_average"),
-            genres=genres,
-            poster_path=payload.get("poster_path"),
-            genre_ids=[item.get("id") for item in payload.get("genres", []) if item.get("id") is not None],
-            original_language=payload.get("original_language"),
-            original_title=payload.get("original_title"),
-            popularity=payload.get("popularity"),
-            vote_count=payload.get("vote_count"),
-            imdb_id=payload.get("imdb_id"),
-            runtime=payload.get("runtime"),
-        )
+    def movie_recommendations(self, movie_id: int) -> list[Movie]:
+        """Combina /recommendations (colaborativo) e /similar (baseado em conteudo)."""
+        pool: list[Movie] = []
+        seen: set[int] = set()
+        for endpoint in (f"/movie/{movie_id}/recommendations", f"/movie/{movie_id}/similar"):
+            try:
+                payload = self._get(endpoint)
+                for m in self._parse_movies(payload.get("results", [])):
+                    if m.id not in seen:
+                        seen.add(m.id)
+                        pool.append(m)
+            except MovieAPIError:
+                pass
+        return pool
 
-    def fetch_imdb_rating(self, imdb_id: str | None) -> float | None:
-        if not imdb_id:
-            return None
+    def search_keyword_id(self, term: str) -> int | None:
+        """Retorna o ID de uma keyword do TMDb, ou None se nao encontrar."""
         try:
-            response = requests.get(
-                IMDB_TITLE_URL.format(imdb_id=imdb_id),
-                headers={"User-Agent": "Mozilla/5.0", "Accept-Language": "en-US,en;q=0.9"},
-                timeout=15,
-            )
-            response.raise_for_status()
-        except requests.RequestException:
+            payload = self._get("/search/keyword", {"query": term})
+            results = payload.get("results", [])
+            return results[0]["id"] if results else None
+        except MovieAPIError:
             return None
-        match = re.search(r'"ratingValue"\s*:\s*"?(?P<rating>\d+(?:\.\d+)?)"?', response.text)
-        if not match:
-            return None
-        return float(match.group("rating"))
+
+    def person_movies(self, name: str) -> list[Movie]:
+        try:
+            payload = self._get("/search/person", {"query": name})
+            results = payload.get("results", [])
+            if not results:
+                return []
+            person_id = results[0]["id"]
+            credits = self._get(f"/person/{person_id}/movie_credits")
+            cast = credits.get("cast", [])
+            directed = [m for m in credits.get("crew", []) if m.get("job") == "Director"]
+            combined = {m["id"]: m for m in cast + directed}.values()
+            sorted_movies = sorted(combined, key=lambda x: x.get("popularity", 0), reverse=True)
+            return self._parse_movies(list(sorted_movies)[:25])
+        except MovieAPIError:
+            return []
 
     def _genre_ids(self, names: Iterable[str]) -> list[int]:
-        available = self.genres()
-        ids: list[int] = []
-        for name in names:
-            genre_name = name.title()
-            if genre_name in available:
-                ids.append(available[genre_name])
-        return ids
+        # Usa IDs hardcoded — sem dependencia de idioma da API
+        return [GENRE_IDS[n] for n in names if n in GENRE_IDS]
 
     def _parse_movies(self, items: Iterable[dict[str, Any]]) -> list[Movie]:
+        # Normaliza generos sempre em ingles usando GENRE_ID_TO_NAME.
+        # Isso garante que o preference_score consiga comparar generos corretamente
+        # independente do idioma retornado pela API (pt-BR retorna "Acao", "Drama", etc.)
         movies: list[Movie] = []
         for item in items:
             if not item.get("title"):
                 continue
-            genres = [genre.get("name") for genre in item.get("genre_names", []) if genre.get("name")]
-            if not genres and item.get("genres"):
-                genres = [genre.get("name") for genre in item.get("genres", []) if genre.get("name")]
-            movies.append(
-                Movie(
-                    id=item["id"],
-                    title=item["title"],
-                    release_date=item.get("release_date") or None,
-                    overview=item.get("overview") or "Sem sinopse disponível.",
-                    rating=item.get("vote_average"),
-                    genres=genres,
-                    poster_path=item.get("poster_path"),
-                    genre_ids=item.get("genre_ids") or [],
-                    original_language=item.get("original_language"),
-                    original_title=item.get("original_title"),
-                    popularity=item.get("popularity"),
-                    vote_count=item.get("vote_count"),
-                )
-            )
+            # Endpoint de detalhe: genres = [{id, name}, ...]
+            raw_genres = item.get("genres", [])
+            if raw_genres:
+                genres: list[str] = [GENRE_ID_TO_NAME[g["id"]] for g in raw_genres if g.get("id") in GENRE_ID_TO_NAME]
+            else:
+                # Endpoints de lista: genre_ids = [28, 18, ...]
+                genres = [GENRE_ID_TO_NAME[gid] for gid in (item.get("genre_ids") or []) if gid in GENRE_ID_TO_NAME]
+            movies.append(Movie(
+                id=item["id"],
+                title=item["title"],
+                release_date=item.get("release_date") or None,
+                overview=item.get("overview") or "Sem sinopse disponivel.",
+                rating=item.get("vote_average"),
+                genres=genres,
+                poster_path=item.get("poster_path"),
+                genre_ids=item.get("genre_ids") or [],
+                original_language=item.get("original_language"),
+                original_title=item.get("original_title"),
+                popularity=item.get("popularity"),
+                vote_count=item.get("vote_count"),
+            ))
         return movies
 
 
-def extract_year(message: str) -> int | None:
-    match = re.search(r"\b(19|20)\d{2}\b", message)
-    if not match:
-        return None
-    return int(match.group(0))
+def normalize(text: str) -> str:
+    return re.sub(r"\s+", " ", text.strip().lower())
 
 
-def extract_genres(message: str) -> list[str]:
-    text = message.lower()
+def extract_year(text: str) -> int | None:
+    m = re.search(r"\b(19|20)\d{2}\b", text)
+    return int(m.group(0)) if m else None
+
+
+def extract_decade(text: str) -> tuple[int, int] | None:
+    patterns = [
+        (r"anos?\s*60|d[eé]cada\s*de\s*60", (1960, 1969)),
+        (r"anos?\s*70|d[eé]cada\s*de\s*70", (1970, 1979)),
+        (r"anos?\s*80|d[eé]cada\s*de\s*80|80s", (1980, 1989)),
+        (r"anos?\s*90|d[eé]cada\s*de\s*90|90s", (1990, 1999)),
+        (r"anos?\s*2000|d[eé]cada\s*de\s*2000|2000s", (2000, 2009)),
+        (r"anos?\s*2010|d[eé]cada\s*de\s*2010|2010s", (2010, 2019)),
+        (r"anos?\s*2020|recente|moderno|atual|novo|lan[cç]amento", (2020, 2026)),
+        (r"cl[aá]ssico|antigo|vintage|old", (1950, 1989)),
+    ]
+    t = text.lower()
+    for pattern, year_range in patterns:
+        if re.search(pattern, t):
+            return year_range
+    return None
+
+
+def extract_genres(text: str) -> list[str]:
+    t = text.lower()
     genres: list[str] = []
-    for keyword, genre in GENRE_KEYWORDS.items():
-        if keyword in text and genre not in genres:
+    for kw, genre in GENRE_KEYWORDS.items():
+        if kw in t and genre not in genres:
             genres.append(genre)
     return genres
 
 
-def normalize_message(message: str) -> str:
-    return re.sub(r"\s+", " ", message.strip().lower())
+def extract_mood_genres(text: str) -> list[str]:
+    t = text.lower()
+    genres: list[str] = []
+    for kw, genre_list in MOOD_GENRE_MAP.items():
+        if kw in t:
+            for g in genre_list:
+                if g not in genres:
+                    genres.append(g)
+    return genres
 
 
-def build_recommendation(message: str, client: TMDbClient, previous_filters: dict[str, Any] | None = None) -> dict[str, Any]:
-    previous_filters = previous_filters or {}
-    cleaned = normalize_message(message)
-    year = extract_year(cleaned) or previous_filters.get("year")
-    genres = extract_genres(cleaned) or previous_filters.get("genres", [])
+def extract_context_genres(text: str) -> list[str]:
+    t = text.lower()
+    genres: list[str] = []
+    for kw, genre_list in CONTEXT_MAP.items():
+        if kw in t:
+            for g in genre_list:
+                if g not in genres:
+                    genres.append(g)
+    return genres
 
-    search_hint = cleaned
-    search_triggered = False
-    for prefix in ("quero ver ", "procure ", "buscar ", "me indique ", "recomende ", "sugira "):
-        if search_hint.startswith(prefix):
-            search_hint = search_hint[len(prefix):]
-            search_triggered = True
 
-    if genres or year:
-        movies = client.discover_movies(genres=genres, year=year)
-        focus = []
-        if genres:
-            focus.append(", ".join(genres))
-        if year:
-            focus.append(str(year))
-        subtitle = " e ".join(focus)
-        reply = f"Separei alguns filmes de {subtitle} para você."
-    elif search_triggered or len(search_hint.split()) >= 2:
-        movies = client.search_movies(search_hint)
-        reply = f"Encontrei filmes parecidos com '{search_hint}'."
+def extract_theme_genres(text: str) -> list[str]:
+    t = text.lower()
+    genres: list[str] = []
+    for kw, genre in THEME_MAP.items():
+        if kw in t and genre not in genres:
+            genres.append(genre)
+    return genres + [g for g in extract_genres(text) if g not in genres]
+
+
+def extract_language(text: str) -> str | None:
+    t = text.lower()
+    for kw, code in LANGUAGE_MAP.items():
+        if kw in t:
+            return code
+    return None
+
+
+def extract_runtime(text: str) -> tuple[int | None, int | None]:
+    t = text.lower()
+    for pattern, (gte, lte) in RUNTIME_PATTERNS:
+        if re.search(pattern, t):
+            return (gte, lte)
+    return (None, None)
+
+
+def extract_sort_order(text: str) -> str:
+    t = text.lower()
+    if any(kw in t for kw in ("público", "publico", "popular", "bilheteria", "blockbuster", "mais visto")):
+        return "popularity.desc"
+    if any(kw in t for kw in ("critica", "crítica", "oscar", "cannes", "festival", "premiado")):
+        return "vote_average.desc"
+    # default: filmes com mais votos = populares E bem avaliados
+    return "vote_count.desc"
+
+
+def is_negative(text: str) -> bool:
+    return text.strip() in NEGATIVE_REFERENCE or len(text.strip()) <= 2
+
+
+def preference_score(
+    movie: Movie,
+    user_genres: list[str],
+    year_gte: int | None,
+    year_lte: int | None,
+    language: str | None = None,
+) -> float:
+    """
+    Score final = qualidade Bayesiana + bonus de afinidade com o perfil do usuario.
+    - Genero  (max +1.5): % dos generos pedidos que o filme possui
+    - Epoca   (max +0.8): lanamento dentro do intervalo pedido
+    - Idioma  (+0.4):     idioma original coincide com preferencia
+    """
+    base = movie.score()
+
+    if user_genres and movie.genres:
+        movie_genre_set = set(movie.genres)
+        matches = sum(1 for g in user_genres if g in movie_genre_set)
+        base += (matches / len(user_genres)) * 1.5
+
+    if movie.release_date and (year_gte or year_lte):
+        try:
+            y = int(movie.release_date[:4])
+            if (year_gte is None or y >= year_gte) and (year_lte is None or y <= year_lte):
+                base += 0.8
+        except (ValueError, TypeError):
+            pass
+
+    if language and movie.original_language == language:
+        base += 0.4
+
+    return base
+
+
+def rank_movies(
+    movies: list[Movie],
+    user_genres: list[str] | None = None,
+    year_gte: int | None = None,
+    year_lte: int | None = None,
+    language: str | None = None,
+    limit: int = TOP_N_MOVIES,
+) -> list[Movie]:
+    # Afroxa progressivamente o filtro de qualidade para nunca retornar lista vazia
+    for min_votes, min_rating in ((MIN_VOTE_COUNT, MIN_RATING), (200, 6.0), (50, 5.0), (0, 0.0)):
+        filtered = [
+            m for m in movies
+            if (m.vote_count or 0) >= min_votes and (m.rating or 0) >= min_rating
+        ]
+        if len(filtered) >= limit:
+            break
+
+    pool = filtered if filtered else movies
+    return sorted(
+        pool,
+        key=lambda m: preference_score(m, user_genres or [], year_gte, year_lte, language),
+        reverse=True,
+    )[:limit]
+
+
+def _cascading_discover(
+    client: TMDbClient,
+    genres: list[str],
+    year: int | None,
+    year_gte: int | None,
+    year_lte: int | None,
+    keyword_id: int | None,
+    sort_by: str,
+    target: int = 15,
+) -> list[Movie]:
+    """
+    Tenta combincacoes de filtros do mais especifico ao mais geral.
+    Para quando acumula `target` candidatos de qualidade (votos >= 300, nota >= 6.5).
+    Nunca aplica language/runtime como filtros hard — eles so afetam o score.
+    """
+    # Cada entrada e um dict de kwargs para discover_movies
+    steps: list[dict[str, Any]] = []
+
+    if genres and (year or year_gte) and keyword_id:
+        steps.append(dict(genres=genres, year=year, year_gte=year_gte, year_lte=year_lte, keyword_id=keyword_id))
+    if genres and (year or year_gte):
+        steps.append(dict(genres=genres, year=year, year_gte=year_gte, year_lte=year_lte))
+    if genres and keyword_id:
+        steps.append(dict(genres=genres, keyword_id=keyword_id))
+    if genres:
+        steps.append(dict(genres=genres))
+    if (year or year_gte) and keyword_id:
+        steps.append(dict(year=year, year_gte=year_gte, year_lte=year_lte, keyword_id=keyword_id))
+    if year or year_gte:
+        steps.append(dict(year=year, year_gte=year_gte, year_lte=year_lte))
+
+    pool: list[Movie] = []
+    seen: set[int] = set()
+
+    for step in steps:
+        results = client.discover_movies(**step, sort_by=sort_by, pages=2)
+        for m in results:
+            if m.id not in seen:
+                seen.add(m.id)
+                pool.append(m)
+        quality = [m for m in pool if (m.vote_count or 0) >= 300 and (m.rating or 0) >= 6.5]
+        if len(quality) >= target:
+            break
+
+    return pool
+
+
+def build_recommendation(answers: list[str], client: TMDbClient) -> dict[str, Any]:
+    def ans(i: int) -> str:
+        return normalize(answers[i]) if i < len(answers) else ""
+
+    genre_ans   = ans(0)
+    mood_ans    = ans(1)
+    context_ans = ans(2)
+    time_ans    = ans(3)
+    lang_ans    = ans(4)
+    runtime_ans = ans(5)
+    acclaim_ans = ans(6)
+    ref_ans     = ans(7)
+    person_ans  = ans(8)
+    theme_ans   = ans(9)
+
+    # Filtros hard para o discover: so genero explicito + epoca
+    primary_genres = extract_genres(genre_ans)
+
+    # Todos os sinais de genero: usados apenas no score (nao filtram)
+    scoring_genres = list(dict.fromkeys(
+        primary_genres
+        + extract_mood_genres(mood_ans)
+        + extract_context_genres(context_ans)
+        + extract_theme_genres(theme_ans)
+    ))
+
+    # Decade tem prioridade sobre ano especifico:
+    # "anos 2010" deve virar year_gte=2010/year_lte=2019, nao year=2010.
+    decade = extract_decade(time_ans)
+    if decade:
+        year = None
+        year_gte, year_lte = decade
     else:
-        movies = client.top_rated_movies()
-        reply = "Posso indicar por gênero, ano ou título. Enquanto isso, deixei alguns filmes bem avaliados."
+        year = extract_year(time_ans)
+        year_gte = year_lte = None
 
-    if not movies:
-        raise MovieAPIError("A API não retornou filmes para essa consulta.")
+    language = extract_language(lang_ans)
+    sort_by = extract_sort_order(acclaim_ans)
 
-    next_filters = {"year": year, "genres": genres}
-    return {"reply": reply, "movies": movies, "filters": next_filters}
+    # Keyword tematica real do TMDb (ex: "heist" → keyword ID)
+    keyword_id: int | None = None
+    if theme_ans and not is_negative(theme_ans):
+        for kw, tmdb_term in THEME_TO_KEYWORD.items():
+            if kw in theme_ans:
+                keyword_id = client.search_keyword_id(tmdb_term)
+                break
 
+    movie_pool: list[Movie] = []
+    ref_movie_title: str | None = None
+    person_name: str | None = None
 
-def format_movies(movies: list[Movie]) -> str:
-    lines = []
-    for movie in movies:
-        rating = f"{movie.rating:.1f}" if movie.rating is not None else "N/A"
-        lines.append(
-            f"- **{movie.title}** ({movie.release_year}) — nota {rating}\n  {movie.overview}\n  [Abrir no TMDb]({movie.url})"
+    # Fonte 1: recomendacoes + similar do filme de referencia (sinal mais forte)
+    if ref_ans and not is_negative(ref_ans):
+        ref_results = client.search_movies(ref_ans)
+        if ref_results:
+            ref_movie_title = ref_results[0].title
+            movie_pool.extend(client.movie_recommendations(ref_results[0].id))
+
+    # Fonte 2: filmografia de ator/diretor
+    if person_ans and not is_negative(person_ans):
+        person_name = person_ans.title()
+        existing = {m.id for m in movie_pool}
+        movie_pool.extend(m for m in client.person_movies(person_ans) if m.id not in existing)
+
+    # Fonte 3: discover com cascading — do filtro mais especifico ao mais geral
+    # Language e runtime NAO filtram aqui; so pontuam no preference_score
+    if primary_genres or year or year_gte or keyword_id:
+        discovered = _cascading_discover(
+            client, primary_genres, year, year_gte, year_lte, keyword_id, sort_by
         )
-    return "\n".join(lines)
+        existing = {m.id for m in movie_pool}
+        movie_pool.extend(m for m in discovered if m.id not in existing)
+
+    # Fonte 4: fallback final — top_rated apenas se TUDO falhou
+    if not movie_pool:
+        movie_pool = client.top_rated_movies()
+
+    if not movie_pool:
+        raise MovieAPIError("A API nao retornou filmes para essa consulta.")
+
+    ranked = rank_movies(
+        movie_pool,
+        user_genres=scoring_genres,
+        year_gte=year_gte,
+        year_lte=year_lte,
+        language=language,
+    )
+
+    # Build reply
+    if decade:
+        decade_label = f"anos {decade[0]}" if decade[0] >= 2000 else f"anos {str(decade[0])[2:]}"
+    else:
+        decade_label = ""
+
+    parts: list[str] = []
+    if scoring_genres:
+        parts.append(", ".join(scoring_genres[:3]))
+    if year:
+        parts.append(str(year))
+    elif decade:
+        parts.append(decade_label)
+
+    if ref_movie_title and person_name:
+        reply = f"Cruzei recomendações de **{ref_movie_title}** com filmes de **{person_name}**"
+        if parts:
+            reply += f" ({', '.join(parts)})"
+        reply += ". Aqui estão os 3 melhores para você:"
+    elif ref_movie_title:
+        reply = f"Baseado em **{ref_movie_title}**"
+        if parts:
+            reply += f", filtrei os melhores filmes de {' e '.join(parts)}"
+        reply += ". Aqui estão os 3 filmes perfeitos para você:"
+    elif person_name:
+        reply = f"Selecionei os melhores trabalhos de **{person_name}**"
+        if parts:
+            reply += f" no estilo {', '.join(parts)}"
+        reply += ":"
+    elif parts:
+        reply = f"Encontrei os **3 melhores filmes** de {' e '.join(parts)} para você:"
+    else:
+        reply = "Baseado no seu perfil, aqui estão os **3 filmes mais bem avaliados** para você:"
+
+    return {"reply": reply, "movies": ranked}
 
 
 def load_tmdb_api_key() -> str:
